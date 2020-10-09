@@ -158,7 +158,7 @@ class TwitterOldDesignScraper(snscrape.base.Scraper):
 
 
 class TwitterAPIScraper(snscrape.base.Scraper):
-	def __init__(self, baseUrl, **kwargs):
+	def __init__(self, baseUrl, convert_tweets=True, **kwargs):
 		super().__init__(**kwargs)
 		self._baseUrl = baseUrl
 		self._guestToken = None
@@ -286,7 +286,9 @@ class TwitterAPIScraper(snscrape.base.Scraper):
 						tweet = obj['globalObjects']['tweets'][entry['content']['item']['content']['tombstone']['tweet']['id']]
 					else:
 						raise snscrape.base.ScraperException(f'Unable to handle entry {entry["entryId"]!r}')
-					yield self._tweet_to_tweet(tweet, obj)
+					if self.convert_tweets:
+						tweet = self._tweet_to_tweet(tweet, obj)
+					yield tweet
 
 	def _tweet_to_tweet(self, tweet, obj):
 		# Transforms a Twitter API tweet object into a Tweet
@@ -391,6 +393,7 @@ class TwitterSearchScraper(TwitterAPIScraper):
 
 	def __init__(self, query, cursor = None, **kwargs):
 		super().__init__(baseUrl = 'https://twitter.com/search?' + urllib.parse.urlencode({'f': 'live', 'lang': 'en', 'q': query, 'src': 'spelling_expansion_revert_click'}), **kwargs)
+		self.convert_tweets = kwargs.get('convert_tweets', True)
 		self._query = query
 		self._cursor = cursor
 

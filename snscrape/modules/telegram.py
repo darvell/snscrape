@@ -1,12 +1,14 @@
 import bs4
 import datetime
 import logging
+import re
 import snscrape.base
 import typing
 import urllib.parse
 
 
 logger = logging.getLogger(__name__)
+_SINGLE_MEDIA_LINK_PATTERN = re.compile(r'^https://t\.me/[^/]+/\d+\?single$')
 
 
 class LinkPreview(typing.NamedTuple):
@@ -73,7 +75,12 @@ class TelegramChannelScraper(snscrape.base.Scraper):
 			if onlyUsername:
 				yield post['data-post'].split('/')[0]
 				return
-			date = datetime.datetime.strptime(post.find('div', class_ = 'tgme_widget_message_footer').find('a', class_ = 'tgme_widget_message_date').find('time', datetime = True)['datetime'].replace('-', '', 2).replace(':', ''), '%Y%m%dT%H%M%S%z')
+			dateDiv = post.find('div', class_ = 'tgme_widget_message_footer').find('a', class_ = 'tgme_widget_message_date')
+			rawUrl = dateDiv['href']
+			if not rawUrl.startswith('https://t.me/') or sum(x == '/' for x in rawUrl) != 4 or rawUrl.rsplit('/', 1)[1].strip('0123456789') != '':
+				self.logger.warning(f'Possibly incorrect URL: {rawUrl!r}')
+			url = rawUrl.replace('//t.me/', '//t.me/s/')
+			date = datetime.datetime.strptime(dateDiv.find('time', datetime = True)['datetime'].replace('-', '', 2).replace(':', ''), '%Y%m%dT%H%M%S%z')
 			if (message := post.find('div', class_ = 'tgme_widget_message_text')):
 				content = message.text
 				outlinks = []
@@ -81,8 +88,11 @@ class TelegramChannelScraper(snscrape.base.Scraper):
 					if any(x in link.parent.attrs.get('class', []) for x in ('tgme_widget_message_user', 'tgme_widget_message_author')):
 						# Author links at the top (avatar and name)
 						continue
-					if link['href'] == f'https://t.me/{post["data-post"]}':
+					if link['href'] == rawUrl or link['href'] == url:
 						# Generic filter of links to the post itself, catches videos, photos, and the date link
+						continue
+					if _SINGLE_MEDIA_LINK_PATTERN.match(link['href']):
+						# Individual photo or video link
 						continue
 					href = urllib.parse.urljoin(pageUrl, link['href'])
 					if href not in outlinks:
@@ -106,9 +116,9 @@ class TelegramChannelScraper(snscrape.base.Scraper):
 					if imageI['style'].startswith("background-image:url('"):
 						kwargs['image'] = imageI['style'][22 : imageI['style'].index("'", 22)]
 					else:
-						self.logger.warning(f'Could not process link preview image on https://t.me/s/{post["data-post"]}')
+						self.logger.warning(f'Could not process link preview image on {url}')
 				linkPreview = LinkPreview(**kwargs)
-			yield TelegramPost(url = f'https://t.me/s/{post["data-post"]}', date = date, content = content, outlinks = outlinks, outlinksss = outlinksss, linkPreview = linkPreview)
+			yield TelegramPost(url = url, date = date, content = content, outlinks = outlinks, outlinksss = outlinksss, linkPreview = linkPreview)
 
 	def get_items(self):
 		r, soup = self._initial_page()
